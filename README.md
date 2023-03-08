@@ -66,3 +66,54 @@ The following table list the configurable parameters of the orchestrator chart a
 | `nms.magmalte.create` | Enable nms magmalte app. | `true` |
 | `nms.rbac` | Enable rbac for nginx and magmalte app. | `false` |
 | `logging.enabled` | If true, deploy the logging sub-chart | `true` |
+
+## Create magma secrets before deploying the charts
+export MAGMA_ROOT=/home/$USER/DevOPS/magma
+
+# generate secrets
+export CERTS_DIR=${MAGMA_ROOT}/.cache/test_certs
+# cd ${MAGMA_ROOT}/orc8r/cloud/docker && ./build.py && ./run.py && sleep 30 && docker-compose down && ls -l ${CERTS_DIR} && cd -
+
+# apply secrets
+export IMAGE_REGISTRY_URL=registry.gitlab.com/cristi0204/magma  # or replace with your registry
+export IMAGE_REGISTRY_USERNAME='cristi0204'
+export IMAGE_REGISTRY_PASSWORD='P@rola123'
+
+export CERTS_DIR=${MAGMA_ROOT}/.cache/test_certs  # mirrored from above
+
+cd ${MAGMA_ROOT}/orc8r/cloud/helm/orc8r
+helm template orc8r charts/secrets \
+  --namespace orc8r \
+  --set-string secret.certs.enabled=true \
+  --set-file 'secret.certs.files.rootCA\.pem'=${CERTS_DIR}/rootCA.pem \
+  --set-file 'secret.certs.files.bootstrapper\.key'=${CERTS_DIR}/bootstrapper.key \
+  --set-file 'secret.certs.files.controller\.crt'=${CERTS_DIR}/controller.crt \
+  --set-file 'secret.certs.files.controller\.key'=${CERTS_DIR}/controller.key \
+  --set-file 'secret.certs.files.admin_operator\.pem'=${CERTS_DIR}/admin_operator.pem \
+  --set-file 'secret.certs.files.admin_operator\.key\.pem'=${CERTS_DIR}/admin_operator.key.pem \
+  --set-file 'secret.certs.files.certifier\.pem'=${CERTS_DIR}/certifier.pem \
+  --set-file 'secret.certs.files.certifier\.key'=${CERTS_DIR}/certifier.key \
+  --set-file 'secret.certs.files.nms_nginx\.pem'=${CERTS_DIR}/controller.crt \
+  --set-file 'secret.certs.files.nms_nginx\.key\.pem'=${CERTS_DIR}/controller.key \
+  --set=docker.registry=${IMAGE_REGISTRY_URL} \
+  --set=docker.username=${IMAGE_REGISTRY_USERNAME} \
+  --set=docker.password=${IMAGE_REGISTRY_PASSWORD} |
+  kubectl apply -f -
+
+# generate fluentd secrets
+cd ${CERTS_DIR}
+openssl genrsa -out fluentd.key 2048
+openssl req -new -key fluentd.key -out fluentd.csr -subj "/C=US/CN=fluentd.$domain"
+openssl x509 -req -in fluentd.csr -CA certifier.pem -CAkey certifier.key -CAcreateserial -out fluentd.pem -days 3650 -sha256
+
+# apply fluentd secrets
+cd ${MAGMA_ROOT}/orc8r/cloud/helm/orc8r
+helm template orc8r charts/secrets \
+  --namespace orc8r \
+  --set-file 'secret.certs.files.fluentd\.pem'=${CERTS_DIR}/fluentd.pem \
+  --set-file 'secret.certs.files.fluentd\.key'=${CERTS_DIR}/fluentd.key |
+  kubectl apply -f -
+
+
+
+
